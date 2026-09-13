@@ -25,7 +25,7 @@ repos:
   # See also: https://github.com/ssciwr/clang-format-wheel
   # Config file: .clang-format
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v23.1.0
+    rev: v23.1.1
     hooks:
       - id: clang-format
         types_or: [c++, c, json, javascript]
