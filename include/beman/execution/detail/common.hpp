@@ -17,6 +17,10 @@
 #define BEMAN_SPECIALIZE_EXPORT template <>
 #endif
 
+#ifndef BEMAN_EXECUTION_WITH_DEFAULT_PARALLEL_SCHEDULER_BACKEND
+#define BEMAN_EXECUTION_WITH_DEFAULT_PARALLEL_SCHEDULER_BACKEND 1
+#endif
+
 #define BEMAN_EXECUTION_TRY_EVAL(rcvr, expr)                                                    \
     do {                                                                                        \
         try {                                                                                   \

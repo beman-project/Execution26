@@ -9,7 +9,6 @@
 import std;
 #else
 #include <algorithm>
-#include <cassert>
 #include <concepts>
 #include <exception>
 #include <memory>

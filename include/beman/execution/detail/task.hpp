@@ -4,11 +4,11 @@
 #ifndef INCLUDED_BEMAN_EXECUTION_DETAIL_TASK
 #define INCLUDED_BEMAN_EXECUTION_DETAIL_TASK
 
+#include <cassert>
 #include <beman/execution/detail/common.hpp>
 #ifdef BEMAN_HAS_IMPORT_STD
 import std;
 #else
-#include <cassert>
 #include <concepts>
 #include <coroutine>
 #include <exception>

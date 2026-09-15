@@ -4,6 +4,7 @@
 #ifndef INCLUDED_BEMAN_EXECUTION_DETAIL_PSCHED_BULK_SENDER
 #define INCLUDED_BEMAN_EXECUTION_DETAIL_PSCHED_BULK_SENDER
 
+#include <cassert>
 #include <beman/execution/detail/common.hpp>
 #ifdef BEMAN_HAS_IMPORT_STD
 import std;
@@ -75,7 +76,7 @@ import beman.execution.detail.value_types_of_t;
 // ----------------------------------------------------------------------------
 
 namespace beman::execution::detail {
-inline constexpr ::std::size_t psched_storage_alignment = alignof(void*);
+inline constexpr ::std::size_t psched_storage_alignment = alignof(::std::max_align_t);
 inline constexpr ::std::size_t psched_storage_size      = 6uz * sizeof(void*);
 template <bool IsChunked, typename Policy, typename Shape, typename Fn, typename Child>
 struct psched_bulk_sender {
@@ -101,12 +102,16 @@ struct psched_bulk_sender {
         auto get_env() const noexcept { return ::beman::execution::get_env(rcvr); }
 
         auto execute(::std::size_t begin, ::std::size_t end) noexcept -> void final {
+            assert(begin < end);
+            assert(IsChunked || !is_parallel_policy || end - begin == 1uz);
             const Shape first   = is_parallel_policy ? static_cast<Shape>(begin) : Shape(0);
             const Shape last    = is_parallel_policy ? static_cast<Shape>(end) : shape;
             const auto  call_fn = [=, this]<typename... Args>(const Args&... args) {
                 if constexpr (IsChunked) {
+                    static_assert(::std::invocable<Fn, Shape, Shape, const Args&...>);
                     fn(first, last, args...);
                 } else {
+                    static_assert(::std::invocable<Fn, Shape, const Args&...>);
                     for (Shape i = first; i < last; ++i) {
                         fn(i, args...);
                     }

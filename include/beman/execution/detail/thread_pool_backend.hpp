@@ -92,11 +92,12 @@ class thread_pool_backend_base
 
     struct batched_bulk_task : task_base {
         struct cookie_type {
-            cookie_type(batched_bulk_task* head, ::std::size_t chunk_count) noexcept
-                : head(head), chunk_count(chunk_count), ref_count(chunk_count) {}
-            batched_bulk_task*           head;
-            ::std::size_t                chunk_count;
-            ::std::atomic<::std::size_t> ref_count;
+            cookie_type(batched_bulk_task* head, ::std::size_t chunk_count, bool one_by_one) noexcept
+                : head(head), chunk_count(chunk_count), one_by_one(one_by_one), ref_count(chunk_count) {}
+            batched_bulk_task* head;
+            ::std::size_t      chunk_count;
+            bool               one_by_one;
+            ::std::size_t      ref_count;
         };
 
         batched_bulk_task(cookie_type*                                                                  cookie,
@@ -106,8 +107,16 @@ class thread_pool_backend_base
             : cookie(cookie), proxy(proxy), i(i), j(j) {}
 
         auto exec() noexcept -> void override {
-            proxy.execute(i, j);
-            if (cookie->ref_count.fetch_sub(1uz, ::std::memory_order_acq_rel) == 1uz) {
+            if (cookie->one_by_one) {
+                for (::std::size_t k = i; k < j; ++k) {
+                    proxy.execute(k, k + 1uz);
+                }
+            } else {
+                proxy.execute(i, j);
+            }
+
+            ::std::atomic_ref<::std::size_t> ref_count{cookie->ref_count};
+            if (ref_count.fetch_sub(1uz, ::std::memory_order_acq_rel) == 1uz) {
                 auto       head        = cookie->head;
                 const auto chunk_count = cookie->chunk_count;
                 auto&      proxy_ref   = proxy;
@@ -158,14 +167,13 @@ class thread_pool_backend_base
     auto schedule_bulk_chunked(::std::size_t                                                                 shape,
                                ::beman::execution::parallel_scheduler_replacement::bulk_item_receiver_proxy& proxy,
                                ::std::span<::std::byte> storage) noexcept -> void override {
-        const ::std::size_t chunk_length = (shape + num_threads() - 1uz) / num_threads();
-        schedule_bulk(shape, chunk_length, proxy, storage);
+        schedule_bulk(shape, false, proxy, storage);
     }
 
     auto schedule_bulk_unchunked(::std::size_t                                                                 shape,
                                  ::beman::execution::parallel_scheduler_replacement::bulk_item_receiver_proxy& proxy,
                                  ::std::span<::std::byte> storage) noexcept -> void override {
-        schedule_bulk_chunked(shape, proxy, storage);
+        schedule_bulk(shape, true, proxy, storage);
     }
 
   protected:
@@ -175,7 +183,7 @@ class thread_pool_backend_base
     }
 
     auto schedule_bulk(::std::size_t                                                                 shape,
-                       ::std::size_t                                                                 chunk_length,
+                       bool                                                                          one_by_one,
                        ::beman::execution::parallel_scheduler_replacement::bulk_item_receiver_proxy& proxy,
                        ::std::span<::std::byte> storage) noexcept -> void {
         if (shape == 0uz) {
@@ -183,7 +191,8 @@ class thread_pool_backend_base
             return;
         }
 
-        const ::std::size_t chunk_count = (shape + chunk_length - 1uz) / chunk_length;
+        const ::std::size_t chunk_length = (shape + num_threads() - 1uz) / num_threads();
+        const ::std::size_t chunk_count  = (shape + chunk_length - 1uz) / chunk_length;
         try {
             if (chunk_count == 1uz) {
                 push_back(::std::construct_at(reinterpret_cast<single_bulk_task*>(storage.data()), proxy, shape));
@@ -192,7 +201,7 @@ class thread_pool_backend_base
                     chunk_count * sizeof(batched_bulk_task), ::std::align_val_t{alignof(batched_bulk_task)}));
                 // NOLINTBEGIN(*-reinterpret-cast, *-pointer-arithmetic-on-polymorphic-object, *-ctr56-cpp)
                 auto cookie = ::std::construct_at(
-                    reinterpret_cast<batched_bulk_task::cookie_type*>(storage.data()), head, chunk_count);
+                    reinterpret_cast<batched_bulk_task::cookie_type*>(storage.data()), head, chunk_count, one_by_one);
 
                 batched_bulk_task* prev = nullptr;
                 for (::std::size_t i = 0; i < chunk_count; ++i) {

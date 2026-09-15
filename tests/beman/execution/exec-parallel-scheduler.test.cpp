@@ -100,9 +100,23 @@ auto test_parallel_scheduler_schedule() -> void {
         ASSERT(i == 114514);
     }
     {
-        test_std::sync_wait(test_std::schedule(sch) | test_std::bulk(test_std::par, 0uz, [](std::size_t) noexcept {}));
+        bool invoked = false;
         test_std::sync_wait(test_std::schedule(sch) |
-                            test_std::bulk(test_std::unseq, 0uz, [](std::size_t) noexcept {}));
+                            test_std::bulk(test_std::par, 0uz, [&invoked](std::size_t) noexcept { invoked = true; }));
+        ASSERT(not invoked);
+        test_std::sync_wait(
+            test_std::schedule(sch) |
+            test_std::bulk(test_std::unseq, 0uz, [&invoked](std::size_t) noexcept { invoked = true; }));
+        ASSERT(not invoked);
+        test_std::sync_wait(test_std::schedule(sch) |
+                            test_std::bulk_chunked(test_std::par, 0uz, [&invoked](std::size_t, std::size_t) noexcept {
+                                invoked = true;
+                            }));
+        ASSERT(not invoked);
+        test_std::sync_wait(
+            test_std::schedule(sch) |
+            test_std::bulk_unchunked(test_std::par, 0uz, [&invoked](std::size_t) noexcept { invoked = true; }));
+        ASSERT(not invoked);
     }
     {
         for (auto size : {1uz, 4uz, 8uz, 16uz, 32uz}) {
@@ -123,11 +137,31 @@ auto test_parallel_scheduler_schedule() -> void {
                 ASSERT(vec[i] == 2 * static_cast<int>(i) + 1);
             }
         }
+
+        for (auto size : {1uz, 4uz, 8uz, 16uz, 32uz}) {
+            std::vector<int> vec(size);
+            std::iota(vec.begin(), vec.end(), 0);
+
+            test_std::sync_wait(test_std::schedule(sch) |
+                                test_std::bulk_unchunked(test_std::par, vec.size(), [&vec](std::size_t i) noexcept {
+                                    vec[i] = 2 * vec[i];
+                                }));
+            for (std::size_t i = 0; i < vec.size(); ++i) {
+                ASSERT(vec[i] == 2 * static_cast<int>(i));
+            }
+
+            test_std::sync_wait(
+                test_std::schedule(sch) |
+                test_std::bulk_unchunked(test_std::seq, vec.size(), [&vec](std::size_t i) noexcept { ++vec[i]; }));
+            for (std::size_t i = 0; i < vec.size(); ++i) {
+                ASSERT(vec[i] == 2 * static_cast<int>(i) + 1);
+            }
+        }
     }
 }
 } // namespace
 
-#ifndef BEMAN_EXECUTION_WITH_DEFAULT_PARALLEL_SCHEDULER_BACKEND
+#if !BEMAN_EXECUTION_WITH_DEFAULT_PARALLEL_SCHEDULER_BACKEND
 namespace beman::execution::parallel_scheduler_replacement {
 auto query_parallel_scheduler_backend() -> std::shared_ptr<parallel_scheduler_backend> {
     static auto backend = std::make_shared<::test_detail::thread_pool_backend>();
